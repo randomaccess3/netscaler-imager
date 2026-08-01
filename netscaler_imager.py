@@ -152,12 +152,24 @@ def _get_disk_size_fallback(ssh_base: list[str], disk: str, logger: logging.Logg
     return None
 
 
+def _local_timestamp() -> str:
+    """Return the current local time as an ISO 8601 timestamp."""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as MM:SS."""
+    m, s = divmod(int(seconds), 60)
+    return f"{m:02d}:{s:02d}"
+
+
 def progress_monitor(
     img_path: Path,
     total_bytes: int | None,
     disk: str,
     logger: logging.Logger,
     stop_event: threading.Event,
+    start_time: float,
 ):
     """Background thread that prints an in-place progress bar while the image is being written."""
     BAR_WIDTH = 30
@@ -171,25 +183,27 @@ def progress_monitor(
         except FileNotFoundError:
             continue
 
+        elapsed = _format_elapsed(time.monotonic() - start_time)
+
         if total_bytes and total_bytes > 0:
             pct = min(current / total_bytes, 1.0)
             filled = int(BAR_WIDTH * pct)
             bar = "█" * filled + " " * (BAR_WIDTH - filled)
             line = (
                 f"\r  [{disk}] [{bar}] {pct * 100:5.1f}%  "
-                f"{_human_bytes(current)} / {_human_bytes(total_bytes)}"
+                f"{_human_bytes(current)} / {_human_bytes(total_bytes)}  [{elapsed} elapsed]"
             )
         else:
-            line = f"\r  [{disk}] {_human_bytes(current)} written ..."
+            line = f"\r  [{disk}] {_human_bytes(current)} written ...  [{elapsed} elapsed]"
 
         # Pad with spaces to overwrite any leftover characters from previous output
-        sys.stdout.write(line.ljust(80))
+        sys.stdout.write(line.ljust(100))
         sys.stdout.flush()
         logger.debug("[%s] %s / %s", disk, _human_bytes(current),
                      _human_bytes(total_bytes) if total_bytes else "unknown")
 
     # Clear the line and move to next line when done
-    sys.stdout.write("\r" + " " * 80 + "\r")
+    sys.stdout.write("\r" + " " * 100 + "\r")
     sys.stdout.flush()
 
 
@@ -213,18 +227,17 @@ def image_disk(
     remote_cmd = f"shell dd if=/dev/{disk} bs={DD_BS}"
     cmd = ssh_base + [remote_cmd]
 
-    logger.info("Starting image of /dev/%s → %s", disk, img_path)
+    logger.info("%s - Starting image of /dev/%s → %s", _local_timestamp(), disk, img_path)
     logger.debug("Command: %s | tail -c +%d | head -c -%d > %s",
                  " ".join(cmd), TAIL_SKIP, HEAD_TRIM, img_path)
 
     stop_event = threading.Event()
+    start_time = time.monotonic()
     monitor = threading.Thread(
         target=progress_monitor,
-        args=(img_path, total_bytes, disk, logger, stop_event),
+        args=(img_path, total_bytes, disk, logger, stop_event, start_time),
         daemon=True,
     )
-
-    start_time = time.monotonic()
     monitor.start()
 
     try:
@@ -275,7 +288,8 @@ def image_disk(
     elapsed = time.monotonic() - start_time
     final_size = img_path.stat().st_size
     logger.info(
-        "Completed %s — %s in %.1f s",
+        "%s - Completed %s — %s in %.1f s",
+        _local_timestamp(),
         disk,
         _human_bytes(final_size),
         elapsed,
