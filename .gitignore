@@ -1,0 +1,11 @@
+# Log files
+*.log
+
+# SSH certificates/keys
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# Disk images
+*.img
