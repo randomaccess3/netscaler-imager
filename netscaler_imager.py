@@ -180,10 +180,10 @@ def progress_monitor(
                 f"{_human_bytes(current)} / {_human_bytes(total_bytes)}"
             )
         else:
-            # Unknown total — show a spinner-style bar
             line = f"\r  [{disk}] {_human_bytes(current)} written ..."
 
-        sys.stdout.write(line)
+        # Pad with spaces to overwrite any leftover characters from previous output
+        sys.stdout.write(line.ljust(80))
         sys.stdout.flush()
         logger.debug("[%s] %s / %s", disk, _human_bytes(current),
                      _human_bytes(total_bytes) if total_bytes else "unknown")
